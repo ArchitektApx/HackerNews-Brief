@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Local state never belongs in the repo. It lives in ${CLAUDE_PLUGIN_DATA}.
+profile.json
+brief.json
+clicks*.jsonl
+tracker.json
+tracker.log
+
+# Design notes, kept local
+PLAN.md
+TEST[-_]RUN*.md

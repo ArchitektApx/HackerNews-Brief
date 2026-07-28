@@ -1,0 +1,9 @@
+#!/bin/sh
+# Claude Code puts a plugin's bin/ on the Bash tool's PATH, so every call is a bare
+# `hn-brief ...` with no path, no shell variable and no version in it. That is what lets
+# one permission rule, Bash(hn-brief *), cover the plugin in every directory and survive
+# an upgrade. Resolving the script by path instead would put the installed version number
+# into the saved rule, and the next release would start asking again.
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+exec python3 "$root/skills/hn-brief/scripts/hn.py" "$@"
