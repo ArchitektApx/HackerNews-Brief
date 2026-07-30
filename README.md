@@ -31,6 +31,28 @@ Learned since last brief: powershell +2, new interest nix.
     Adjacent to `rust`. Would add `formal-methods`.
 ```
 
+## 🖥️ Two ways to run it
+
+|  | Claude Code runs on | You read the brief on | It learns from |
+| :-- | :-- | :-- | :-- |
+| **Local** | your machine | the same machine | clicking links |
+| **Remote** | one machine you leave running | your phone, or any device you connect from | `/hn-brief keep N` |
+
+**Local.** The default, nothing to configure. Links point at a small redirect on `127.0.0.1`, so
+clicking one records the click and forwards you to the page.
+
+**Remote.** Keep the session on one machine, connect to it from your phone or another device, and
+set `HN_BRIEF_REMOTE` there:
+
+```json
+// ~/.claude/settings.json
+{ "env": { "HN_BRIEF_REMOTE": "1" } }
+```
+
+Links become Hacker News links that open from anywhere, and `/hn-brief keep 4 11` tells it what you
+liked, counting exactly the same as clicking those two items. One profile either way. See
+[Settings](docs/settings.md).
+
 ## 🚀 Install
 
 ```
@@ -71,8 +93,9 @@ saves the ones that survive. Takes a minute, once.
 /hn-brief explore         ten stories outside your profile
 ```
 
-Ctrl+Shift+click a link to open it (⌘-click or Ctrl+click in most other terminals). That click is
-what teaches the plugin, so open things you actually find interesting and the brief follows you.
+Locally, open a link the way your terminal opens links: ⌘-click on macOS, Ctrl+click on Linux and
+Windows, Ctrl+Shift+click in the VS Code terminal. That click is what teaches the plugin, so open
+what you actually find interesting and the brief follows you.
 
 Three sections, every run:
 
@@ -94,8 +117,9 @@ Time ranges work in plain language, and are calendar aware:
 
 ## 🧠 How it learns
 
-Links point at a small local redirect that logs the click, then sends you on to the real page.
-Click three PowerShell stories and `powershell` becomes an interest without you typing anything.
+Open a "New to you" pick about PowerShell and `powershell` becomes an interest without you typing
+anything. Open stories in a topic you already follow and its weight rises, which wins ties later.
+In a remote session `/hn-brief keep 4 11` says the same thing in words.
 
 An interest only loses weight after it was shown to you repeatedly and you ignored it every time.
 Elapsed time costs nothing, so a niche topic HN covers twice a month is judged on those two
@@ -114,7 +138,7 @@ articles that get summarized, which honor `robots.txt`. Your profile is never tr
 | Guide | What is in it |
 | :-- | :-- |
 | [Commands](docs/commands.md) | Every command, time range grammar, managing interests |
-| [Settings](docs/settings.md) | Tuning thresholds, sizes and the click tracker |
+| [Settings](docs/settings.md) | Tuning thresholds and sizes, the click tracker, reading on another device |
 | [How it works](docs/how-it-works.md) | Ranking, term matching, decay, the tracker, known limits |
 
 ## License

@@ -1,16 +1,13 @@
 # Managing interests
 
-One `hn-brief` invocation per Bash call, never several joined together.
-
 ## Show
 
 ```bash
 hn-brief show
 ```
 
-Three short sections: interests with weight and hits, probation with times shown, blocked. Add
-one line: weight rises with clicks and falls only after repeated ignored impressions, never from
-time passing.
+Add one line to whatever it prints: weight rises with clicks and falls only after repeated ignored
+impressions, never from time passing.
 
 A term marked `*` was learned from a re-rank rather than stated. Those are the first candidates
 for `drop-term` if a topic starts pulling in the wrong stories.
@@ -42,12 +39,10 @@ A topic listed in `broad_only` has no term that is not broad, so no rewording re
 in a story names the topic. Say so and propose the narrower topics the user probably meant, since
 adding it anyway floods every future brief with whatever shares that term.
 
-Matching folds punctuation and handles plurals, so `github.com` matches a github.com URL and
-`open weights` matches "open-weight". A term of six letters or more also matches a longer word it
-begins, so `postgres` covers "PostgreSQL" and `sqlite` covers "sqlite3". No need to list variants.
-
-A term written with a leading dot, like `.net`, is treated as a technology name and matched in
-titles only. Otherwise it would hit every `.net` domain on the site.
+Matching folds punctuation and plurals, so `github.com` matches a github.com URL and `open weights`
+matches "open-weight", and a term of six letters or more matches a longer word it begins, so
+`postgres` covers "PostgreSQL". No need to list variants. A leading dot, as in `.net`, matches
+titles only, since otherwise it would hit every `.net` domain on the site.
 
 Report which terms you used and flag anything that came back `broad`.
 
@@ -60,9 +55,9 @@ hn-brief drop-term TOPIC term-to-remove
 hn-brief add TOPIC --terms "new,list" --replace
 ```
 
-Both keep the topic's weight, hits and counters. Never reach for `forget` plus `unblock` plus
-`add` to prune a term: that path discards everything the profile has learned about the topic and
-passes through a state where its terms are blocked.
+Both keep the topic's weight, hits and counters. Never prune a term with `forget` plus `unblock`
+plus `add`: that discards everything the profile learned about the topic, and passes through a state
+where its terms are blocked.
 
 ## Forget
 

@@ -38,7 +38,7 @@ quietly widening.
 A terminal cannot report a click, so brief links point at a redirect server on `127.0.0.1` which
 logs the click and forwards you to the real page.
 
-Security properties, on purpose:
+Its limits are deliberate:
 
 - Binds localhost only, never the LAN.
 - Story ids must be digits, and the redirect target is read from the recorded brief rather than
@@ -47,7 +47,8 @@ Security properties, on purpose:
 - It exits after `tracker_idle_ttl_min` idle minutes, or on `/hn-brief tracker stop`.
 
 If it is not running, the brief renders plain Hacker News links and says clicks are not being
-recorded.
+recorded. Set `HN_BRIEF_REMOTE` to choose that on purpose, for a brief you read on another device
+where a `127.0.0.1` link cannot reach the tracker. See [Settings](settings.md).
 
 ## ⚖️ Weights and decay
 
@@ -82,8 +83,9 @@ One writer, atomic writes. A brief, the tracker and a click can all land at once
 
 ## 🧪 Running the scripts directly
 
-The skill is orchestration. Everything is reachable through the `hn-brief` command the plugin puts
-on your PATH:
+The skill is orchestration. Every capability sits behind the `hn-brief` command, which the plugin
+puts on the PATH of Claude Code's Bash tool. So these are what runs under the hood when you ask in
+plain language, and what you can ask for directly:
 
 ```bash
 hn-brief show
@@ -95,7 +97,8 @@ hn-brief tracker status
 
 ## ⚠️ Known limits
 
-- Clicks are recorded only while the tracker is alive.
+- Clicks are recorded only while the tracker is alive, so a remote session learns nothing until you
+  say `/hn-brief keep N`.
 - The Algolia index lags Hacker News slightly, so a story posted minutes ago may miss one run and
   appear in the next.
 - Summaries need readable HTML. Paywalls, PDFs and client rendered pages fall back to one line.

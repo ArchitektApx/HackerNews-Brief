@@ -12,7 +12,7 @@
       "name": "hn-brief",
       "source": "./",
       "description": "Personalized Hacker News brief. Ranks today's stories against a stored interest profile, surfaces a few new topics each run, and learns from which links you click.",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "category": "productivity",
       "tags": [
         "hacker-news",

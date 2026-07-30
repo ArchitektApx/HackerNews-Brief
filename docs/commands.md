@@ -21,8 +21,10 @@ new", "stop showing me crypto" and "I like number 4" all route to the right plac
 | `/hn-brief forget TOPIC` | Remove it and block its terms so discovery cannot bring it back |
 | `/hn-brief keep N [N...]` | Adopt numbered items from the last list you were shown |
 
-Numbers in `keep` resolve against whatever was rendered last, a brief or an explore run, so
-`/hn-brief keep 4 11` right after a brief adopts those two topics.
+Numbers in `keep` resolve against whatever was rendered last, a brief or an explore run. So
+`/hn-brief keep 4 11` right after a brief adopts the topic each of those items offered, or
+strengthens the interest it already belonged to. It counts the same as clicking them, which is what
+makes it the way to answer a brief you read somewhere the links do not work.
 
 ## Maintenance
 
@@ -59,6 +61,9 @@ misinterpretation is visible rather than silent.
 Terms are what the whole profile rests on. A topic matches a story when one of its terms appears
 in the title or the domain.
 
+Ask for this in plain words, "are these good terms for rust", "stop matching k8s on kubectl". These
+are the commands that run underneath, listed so you can be exact when it matters:
+
 ```
 hn-brief terms --topic TOPIC --terms "term one,term two"   # are these any good?
 hn-brief add TOPIC --terms "new,list" --replace            # swap the list, keep the history
@@ -77,6 +82,8 @@ Both `--replace` and `drop-term` keep the topic's weight, hits and counters. Rea
 `forget` and re-adding instead throws away everything the profile has learned about it.
 
 ## 💾 Moving a profile
+
+Ask to back up or restore the profile, and this is what runs:
 
 ```
 hn-brief export > profile-backup.json

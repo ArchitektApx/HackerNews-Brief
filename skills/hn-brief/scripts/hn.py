@@ -52,6 +52,10 @@ def preamble():
 
     Failures here are reported, never fatal. A tracker that will not start costs clickable
     links, which is worth saying out loud, but it is not worth losing the brief over.
+
+    `HN_BRIEF_REMOTE` means the browser that opens the brief is not on this machine, so a
+    loopback redirect is unreachable by definition. Skipping `ensure` rather than discarding
+    its result is the point: no process, no startup poll, no `tracker.json` nobody can use.
     """
     notices = {}
     run(store, ["init"])
@@ -59,6 +63,9 @@ def preamble():
         line = run(store, [step])
         if line:
             notices[step] = line
+    if os.environ.get("HN_BRIEF_REMOTE"):
+        notices["tracker"] = {"status": "remote", "port": None}
+        return notices
     try:
         notices["tracker"] = json.loads(run(tracker, ["ensure"]))
     except (SystemExit, ValueError, json.JSONDecodeError):

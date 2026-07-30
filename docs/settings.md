@@ -33,12 +33,16 @@ already told it about, while a story matching nothing has to earn its slot on si
 
 | Key | Default | Meaning |
 | :-- | --: | :-- |
-| `summarize_max` | 4 | Max article pages fetched per brief |
+| `summarize_max` | 4 | Max summaries in one brief |
 | `summarize_min_score` | 1.5 | Match strength that earns a summary |
 | `summarize_min_points` | 400 | Popularity that earns a summary |
 
-Each fetched page is capped before it is read, so raising `summarize_max` costs roughly one page
-of text per extra summary. This is the most expensive part of a run.
+Each page is capped before it is read, so raising `summarize_max` costs roughly one page of text
+per extra summary. This is the most expensive part of a run.
+
+A brief fetches two or three spare pages beyond the cap, so that a paywall or a `robots.txt` refusal
+costs a spare rather than a summary. Their text is discarded unread, which is why the cap is on
+summaries and not on fetches.
 
 ## 🧠 Learning
 
@@ -56,3 +60,20 @@ longer to prove themselves, or lower it if stale interests linger.
 | :-- | --: | :-- |
 | `tracker_port` | 47811 | Preferred port, scans upward if taken |
 | `tracker_idle_ttl_min` | 180 | Idle minutes before it shuts itself down |
+
+## 📱 Take it with you
+
+Want your brief on your phone, or on whatever device you are at, with one profile behind all of
+them? Keep the Claude Code session on one machine, connect to it from the others, and set
+`HN_BRIEF_REMOTE` on the machine running the session:
+
+```json
+// ~/.claude/settings.json
+{ "env": { "HN_BRIEF_REMOTE": "1" } }
+```
+
+`~/.zshrc` or `~/.bashrc` works too, if you start `claude` from a shell.
+
+Your links then point at Hacker News instead of the local click tracker, so they open from anywhere.
+Nothing can record a click, so tell it what you liked: `/hn-brief keep 4 11` counts exactly the same
+as clicking those two items. Remove the variable and click tracking comes back.

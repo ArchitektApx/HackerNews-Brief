@@ -8,8 +8,7 @@ Same preamble as the daily brief, in the same one call:
 hn-brief explore --range "<range or empty>"
 ```
 
-Defaults to the last 72 hours, since discovery needs a wider net than a daily brief. Accepts the
-same range grammar.
+Defaults to the last 72 hours, a wider net than a daily brief, and accepts the same range grammar.
 
 Pick `settings.explore_size` items from `unmatched`, one per topic, ranked by how plausibly this
 user would adopt the topic rather than by points. Spread beats popularity here.
@@ -24,13 +23,12 @@ Render one flat numbered list, closing with ``Click any of them, or `/hn-brief k
    → would add `<new-topic>`
 ```
 
-An item whose real topic is already an interest keeps `topics` and a null `new_topic`, same rule
-as a breakout item, so a click strengthens what exists instead of duplicating it. Say so in its
-line rather than offering a new topic.
+With no tracker the `notices.tracker` rule governs here too, closing line included: `keep` is the
+whole offer, since there is nothing to click.
 
-That case is also a term-list hole, since the item reached `unmatched` at all. Put the term in the
-batch's `learn` under the same restraint as the brief: a name you can point at the story for,
-never a guess.
+An item whose real topic is already an interest keeps `topics` with a null `new_topic`, breakout's
+rule, and says so in its line instead of offering a topic. That case is also a term-list hole, since
+the item reached `unmatched` at all, so name the missing term in `learn`.
 
 Write `mode: "explore"`, ids plus `new_topic` and `new_terms` on every genuinely new item, and
 `learn` for the rescues:
@@ -39,7 +37,7 @@ Write `mode: "explore"`, ids plus `new_topic` and `new_terms` on every genuinely
 hn-brief apply --file <batch path>
 ```
 
-Two differences from the daily brief, both deliberate and both handled by `mode`:
+Two differences from a brief, both handled by `mode`:
 
 - **Nothing is marked seen.** A topic the user did not adopt should stay eligible for the daily
   discovery block.
