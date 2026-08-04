@@ -85,31 +85,25 @@ An item carrying two topics appears once, under the interest the story is actual
 the one that scored higher. List both in `topics` so a click credits the real subject too.
 
 Show every `breakout` item whatever it is about. Each needs a topic decision the prescore could not
-make: if its topic is already an interest, put it in `topics` and leave `new_topic` null so a click
-strengthens that interest rather than duplicating it; otherwise give it `new_topic` and `new_terms`
-like a discovery pick.
+make: if its topic is already an interest, put it in `topics` and give it no `new` so a click
+strengthens that interest rather than duplicating it; otherwise give it `new` and `terms` like a
+discovery pick.
 
 Discovery picks come from distinct topics, are adjacent to an existing interest rather than random,
-and prefer items carrying a `probation_hint`. Each gets a kebab-case `new_topic` and two or three
-`new_terms` that would match similar stories later.
+and prefer items carrying a `probation_hint`. Each gets a kebab-case `new` and two or three `terms`
+that would match similar stories later.
 
 ### Summaries
 
-The standouts get a real summary: `matched` items at `score >= settings.summarize_min_score`, and
-anything at `points >= settings.summarize_min_points`. Cap at `settings.summarize_max`, fetched in
-one call, ordered by fit to this profile with points only breaking ties.
+`summaries` carries article text already fetched for a few items, keyed by `id`. Write two or three
+sentences of substance from each: what it says, what is new, what it concludes. Every other item
+gets its one-line note instead. A short or absent `summaries` is a normal run, not a fault, so never
+mention it or substitute comments for a page.
 
-```bash
-hn-brief extract --ids <id> <id> <id> --want <summarize_max>
-```
-
-Pass two or three spare ids beyond the cap. `--want` returns the first that succeed, so a page
-behind robots.txt or a paywall costs a spare rather than a summary slot. Every result carries the
-`id` it came from, including the refusals listed after the successes, so match on that.
-
-Write two or three sentences of substance from each `ok` result: what it says, what is new, what it
-concludes. When `ok` is false, fall back to the one-line note without mentioning the failure or
-substituting comments. Nothing else in the brief justifies a page fetch.
+**A shipped summary is a fetch, not a verdict.** It neither promotes its item nor protects it. The
+shortlist that chose it is lexical, so it will sometimes carry text for an item you judge as noise,
+a `matched_via_url` match or a low scorer under a `broad_terms` topic. Drop those exactly as you
+would without the text and leave the summary unused.
 
 ### Output
 
@@ -144,36 +138,27 @@ Two things the format depends on:
 
 ### Write back
 
-`order` must match the numbering shown. Titles and URLs are already cached from the fetch, so write
-ids and topic decisions only, to a session scratchpad path rather than a fixed name an earlier
-session may already own.
-
-```json
-{
-  "mode": "brief",
-  "order": ["<id>", "<id>", "<id>"],
-  "items": {
-    "<id>": {"topics": ["<interest>"]},
-    "<id>": {"topics": [], "new_topic": "<new-topic>", "new_terms": ["term one", "term two"]}
-  },
-  "shown": ["<interest>"],
-  "probation": {"<new-topic>": ["term one", "term two"]},
-  "learn": {"<interest>": ["term one"]}
-}
-```
+One Bash call carrying the whole batch, no file to write first. Titles and URLs are already cached
+from the fetch, so send ids and topic decisions only.
 
 ```bash
-hn-brief apply --file <batch path>
+hn-brief apply --batch '{"items":[{"id":"<id>","topics":["<interest>"]},{"id":"<id>","new":"<new-topic>","terms":["term one","term two"]}],"shown":["<interest>"],"learn":{"<interest>":["term one"]}}'
 ```
 
-`mode` decides suppression, so a brief's stories are marked seen and will not return.
+`items` is **ordered**, and each position is the number you rendered, which is what `keep N`
+resolves against.
 
-`probation` takes every topic you offered, discovery picks and breakout items alike, since both are
-offers a click can accept.
+`topics` names the interests an item credits. Omit it for a pure discovery pick. `new` plus `terms`
+is the topic a click would adopt, on discovery picks and breakout items alike, since both are offers
+a click can accept.
 
-`shown` takes **only** interests you actually rendered a group for. It is the sole input to weight
-decay, so a topic that got no slot today must not be listed: scarcity on HN may never cost an
-interest anything.
+`mode` defaults to `brief` and is stated only for explore. It decides suppression, so a brief's
+stories are marked seen and will not return.
+
+`shown` takes **only** interests you actually rendered a group for, which is less than the union of
+`topics`: a dual-topic item and a breakout item both credit an interest they did not render under.
+It is the sole input to weight decay, so a topic that got no heading today must not be listed:
+scarcity on HN may never cost an interest anything.
 
 `learn` holds only terms you can point at a story for: product, project and domain names. A guess
 outlives the miss it fixed and matches every day after. Say which terms were learned in one line at
@@ -184,5 +169,5 @@ the end.
 - Report a non-zero exit by quoting its stderr line. They are written to be read.
 - Zero matches is a real answer: say so, show the other sections, suggest `explore`.
 - Never list interests that had no stories. That is the normal case, not news.
-- This runs daily, so the brief costs three Bash calls: `brief`, `extract`, `apply`. Do not re-read
-  the payload or narrate the pipeline.
+- This runs daily, so the brief costs two Bash calls: `brief`, then `apply`. Do not re-read the
+  payload or narrate the pipeline.

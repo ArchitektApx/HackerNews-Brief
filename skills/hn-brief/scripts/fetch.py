@@ -11,6 +11,7 @@ The lexical score here is a prefilter. Semantic ranking happens in SKILL.md.
 """
 
 import argparse
+import http.client
 import importlib.util
 import json
 import os
@@ -33,6 +34,7 @@ def _load_sibling(name, filename):
 
 
 store = _load_sibling("hn_brief_profile", "profile.py")
+extract = _load_sibling("hn_brief_extract", "extract.py")
 
 API = "https://hn.algolia.com/api/v1/"
 USER_AGENT = "hn-brief (Claude Code plugin; +https://github.com/topics/claude-code-plugins)"
@@ -47,6 +49,11 @@ URL_ONLY_PENALTY = 0.4     # a term found only in a URL slug, never in title or 
 PREFIX_MIN = 6             # term length from which a match may run on: postgres/PostgreSQL
 BROAD_DF = 0.04     # a term matching more than this share of the pool stops discriminating
 BROAD_FLOOR = 0.15  # even a very broad term keeps some pull, so its topic is not silenced
+# Pages fetched per brief so failures cost a spare rather than a summary slot. Measured
+# failure rate is 18% over 38 pages, so 8 for 4 slots is sized, not generous. Not a
+# setting: the model never needs it, and every setting is paid for in the payload.
+SUMMARY_FETCH_BUDGET = 8
+SUMMARY_FETCH_TIMEOUT = 8  # per page, below extract.py's CLI default of 12 on purpose
 
 
 def http_json(url):
@@ -56,7 +63,12 @@ def http_json(url):
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
                 return json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+        # http.client.HTTPException covers a truncated response (IncompleteRead) and descends
+        # from Exception, not from OSError or URLError, so none of the others imply it. It is
+        # precisely the transient failure this retry loop exists for, and without it a
+        # half-delivered Algolia response bypassed the retry and killed the brief outright.
+        except (urllib.error.URLError, urllib.error.HTTPError, http.client.HTTPException,
+                TimeoutError, json.JSONDecodeError) as exc:
             last = exc
             if attempt < RETRIES:
                 time.sleep(1 + 2 * attempt)
@@ -395,6 +407,78 @@ def cap_by_domain(items, cap=DOMAIN_CAP):
     return kept
 
 
+def summary_shortlist(matched, breakout, unmatched, settings):
+    """Ordered summary candidates: qualifiers, breadth-first over topics.
+
+    Only qualifiers are eligible, the same rule SKILL.md used to state: a `matched` item at
+    `score >= summarize_min_score`, or anything anywhere at `points >= summarize_min_points`.
+    The pool is larger than the cap on essentially every run, so this ordering, not the cap,
+    is what decides which stories get read.
+
+    Breadth-first because `score` is a lexical prefilter and cannot separate contenders once
+    the pool exceeds the cap. Ordering by it instead spends every slot on whichever interest
+    carries the most weight and the longest term list, which on the profile this was measured
+    against takes all four slots on most days and leaves large stories in other interests
+    unread.
+
+    Takes full item records, not slimmed ones, so `topics` is still a list of dicts here.
+    """
+    min_score = float(settings.get("summarize_min_score", 1.5))
+    min_points = int(settings.get("summarize_min_points", 400))
+
+    buckets = {}
+    for items, scored in ((matched, True), (breakout, False), (unmatched, False)):
+        for item in items:
+            score = float(item.get("score") or 0.0)
+            if not ((scored and score >= min_score) or item["points"] >= min_points):
+                continue
+            topics = item.get("topics") or []
+            # None is one shared bucket for everything with no stated interest behind it,
+            # which is every breakout and every discovery candidate.
+            buckets.setdefault(topics[0]["topic"] if topics else None, []).append(item)
+
+    for topic, group in buckets.items():
+        group.sort(key=(lambda i: -i["points"]) if topic is None
+                   else (lambda i: (-float(i.get("score") or 0.0), -i["points"])))
+
+    ordered, depth = [], 0
+    while any(len(group) > depth for group in buckets.values()):
+        wave = [group[depth] for group in buckets.values() if len(group) > depth]
+        wave.sort(key=lambda i: (-float(i.get("score") or 0.0), -i["points"]))
+        ordered.extend(wave)
+        depth += 1
+    return ordered
+
+
+def fetch_summaries(matched, breakout, unmatched, settings):
+    """Shortlist, fetch and return `summaries` for the payload. Never raises.
+
+    Extraction reaches third party sites, so it is the least reliable thing in a brief. It
+    used to sit in its own command, where a network problem cost summaries and nothing else;
+    folding it into the brief has to preserve that or it trades two model turns for a brief
+    that a single unreachable host can destroy.
+
+    Contained but not silent. Swallowing everything would also swallow a bug in the
+    shortlist, and summaries would then disappear from every brief with nothing to show for
+    it. The payload is stdout, so the warning goes to stderr where it cannot corrupt it.
+    """
+    try:
+        # A story with no link of its own carries the HN item page as its url, and that is
+        # the one thing extract.py refuses by construction. Such an item can still qualify
+        # on points, and the budget exists so failures cost a spare rather than a summary
+        # slot, so spending a slot on a certain failure defeats what it is for.
+        shortlist = [i for i in summary_shortlist(matched, breakout, unmatched, settings)
+                     if not domain_of(i["url"]).endswith("news.ycombinator.com")]
+        results = extract.extract_many([(i["id"], i["url"]) for i in shortlist[:SUMMARY_FETCH_BUDGET]],
+                                       want=int(settings.get("summarize_max", 4)),
+                                       timeout=SUMMARY_FETCH_TIMEOUT)
+        return [{"id": r["id"], "text": r["text"]} for r in results if r.get("id")]
+    except Exception as exc:
+        print("hn-brief: summaries skipped, extraction failed (%s: %s)"
+              % (type(exc).__name__, exc), file=sys.stderr)
+        return []
+
+
 def run(args):
     prof = store.load_profile()
     settings = prof["settings"]
@@ -528,6 +612,11 @@ def run(args):
         matched = matched[:args.limit or settings["brief_size"] * 2 * scale]
         unmatched = unmatched[:settings["discovery_slots"] * 3 * scale]
 
+    # Before slim(), which strips `url` deliberately, and explore only ever renders one line
+    # per item so fetching for it would spend 8 requests on text nothing reads.
+    summaries = [] if args.command == "explore" else fetch_summaries(
+        matched, breakout, unmatched, settings)
+
     # Terms so common today that they barely narrow anything down. Worth telling the user.
     broad_terms = {}
     for (topic, term), value in sorted(strength.items()):
@@ -542,8 +631,10 @@ def run(args):
                   "end": datetime.fromtimestamp(end, timezone.utc).strftime("%Y-%m-%dT%H:%MZ")},
         "min_points": min_points,
         # Tracker settings are omitted: the live port comes from `tracker.py ensure`, and a
-        # stale preference here would contradict it.
-        "settings": {k: v for k, v in settings.items() if not k.startswith("tracker_")},
+        # stale preference here would contradict it. summarize_* went with them once the
+        # script started selecting: the model no longer reads either threshold or the cap.
+        "settings": {k: v for k, v in settings.items()
+                     if not k.startswith(("tracker_", "summarize_"))},
         "profile": {
             # Topic names and weights only. The match terms already did their work in the
             # prescore, and repeating them here would cost context for nothing.
@@ -567,6 +658,8 @@ def run(args):
         "breakout": [slim(i) for i in breakout],
         "unmatched": [slim(i) for i in unmatched],
     }
+    if summaries:
+        payload["summaries"] = summaries
     # Full records for everything emitted, so later steps can look up by id alone. Merged
     # rather than replaced: an explore run between a brief and its extract call must not
     # invalidate the ids that brief just rendered.

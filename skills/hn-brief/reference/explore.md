@@ -26,20 +26,20 @@ Render one flat numbered list, closing with ``Click any of them, or `/hn-brief k
 With no tracker the `notices.tracker` rule governs here too, closing line included: `keep` is the
 whole offer, since there is nothing to click.
 
-An item whose real topic is already an interest keeps `topics` with a null `new_topic`, breakout's
-rule, and says so in its line instead of offering a topic. That case is also a term-list hole, since
-the item reached `unmatched` at all, so name the missing term in `learn`.
+An item whose real topic is already an interest keeps `topics` and gets no `new`, breakout's rule,
+and says so in its line instead of offering a topic. That case is also a term-list hole, since the
+item reached `unmatched` at all, so name the missing term in `learn`.
 
-Write `mode: "explore"`, ids plus `new_topic` and `new_terms` on every genuinely new item, and
-`learn` for the rescues:
+Same batch shape as a brief, with `mode` stated: `new` and `terms` on every genuinely new item, and
+`learn` for the rescues.
 
 ```bash
-hn-brief apply --file <batch path>
+hn-brief apply --batch '{"mode":"explore","items":[{"id":"<id>","new":"<new-topic>","terms":["term one","term two"]}],"learn":{"<interest>":["term one"]}}'
 ```
 
-Two differences from a brief, both handled by `mode`:
+Two differences from a brief, both carried by `mode` alone:
 
 - **Nothing is marked seen.** A topic the user did not adopt should stay eligible for the daily
   discovery block.
-- **Nothing enters probation.** Explore is opt-in only, so leave `probation` out of the batch:
-  appearing in the list is not acceptance.
+- **Nothing enters probation.** Explore is opt-in only. `new` and `terms` are still written, since
+  `keep` reads them to know what a click would adopt, but appearing in the list is not acceptance.

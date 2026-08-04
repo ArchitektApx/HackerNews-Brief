@@ -40,6 +40,17 @@ names say what they do. The ones that do not:
 | `summarize_min_points` | Popularity earning a summary |
 | `decay_after_impressions` | Ignored *impressions*, never elapsed days |
 
+## Article text, for debugging
+
+```bash
+hn-brief extract --ids <id> <id> --max-chars 2000
+```
+
+A brief already fetches and ships the text it needs, so this is never part of a run. It exists for
+one question: when a summary reads badly, was it the page or the prompt? Ids resolve against the
+candidates of the last brief or explore run, and each result carries the `id` it came from plus a
+`reason` when the fetch was refused.
+
 ## Moving a profile
 
 ```bash

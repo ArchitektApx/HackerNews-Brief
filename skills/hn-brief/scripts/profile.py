@@ -496,11 +496,97 @@ def cmd_seen(args, prof):
     print("seen: %d ids tracked" % len(prof["seen"]))
 
 
-def cmd_record(args, prof):
-    """Merge a rendered brief into brief.json so the tracker can resolve links."""
+def string_list(value, field):
+    """A JSON array of strings, or die naming the field.
+
+    A bare string where a list belongs is the slip worth catching, because nothing
+    downstream refuses it: a string is iterable, so `",".join("term one")` reaches
+    split_terms as seven single-character terms, and a one-character term matches nearly
+    every story from then on. Exit 0, normal-looking output, profile quietly ruined. That
+    is the failure SKILL.md warns the model about, and the script must not deliver it.
+    """
+    if not value:
+        return []
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        die("%s must be a list of strings, got %r" % (field, value))
+    return value
+
+
+def string_map(value, field):
+    """An object mapping a topic to its terms, or die naming the field."""
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        die("%s must be an object mapping a topic to a list of terms, got %r" % (field, value))
+    return {topic: string_list(terms, "%s.%s" % (field, topic)) for topic, terms in value.items()}
+
+
+def expand_batch(batch):
+    """Expand the compact `apply --batch` payload into the shape cmd_record consumes.
+
+    The model types this back on every run, so the compact form states only what cannot be
+    derived: ordered ids with their topic decisions. `order` is item position and
+    `probation` is the `new` and `terms` pairs, so neither is written out. `shown` looks
+    derivable and is not: the union of `topics` is a strict superset of the interests that
+    got a heading, and charging an impression to an interest that was never displayed is a
+    silent decay bug. See cmd_shown.
+
+    Pure, and the only place that knows the compact grammar, which is why every type check
+    belongs here rather than at the consumers. hn.py reads the expansion to order its steps;
+    `record --batch` expands the same string again for itself, so either entry point works
+    alone. Nothing partially valid gets through: a batch either expands whole or dies.
+    """
+    if not isinstance(batch, dict):
+        die("batch must be a JSON object")
+    mode = batch.get("mode", "brief")
+    # `mode` alone carries the explore rules, so an unrecognised spelling would silently
+    # mark an explore list seen and retire topics the user never adopted.
+    if mode not in ("brief", "explore"):
+        die("mode must be brief or explore, got %r" % (mode,))
+    order, items, probation = [], {}, {}
+    for entry in batch.get("items") or []:
+        where = "items[%d]" % len(order)
+        if not isinstance(entry, dict):
+            die("every entry in items must be an object with an id")
+        story_id = str(entry.get("id") or "")
+        # A malformed id cannot be skipped quietly: position is the rendered number, so
+        # dropping one renumbers everything after it and `keep N` resolves to the wrong story.
+        if not re.fullmatch(r"\d+", story_id):
+            die("%s has no usable id (%r)" % (where, entry.get("id")))
+        # A repeat breaks the same contract from the other side: two positions, one story,
+        # and the later entry silently wins whatever decisions the earlier one carried.
+        if story_id in items:
+            die("%s repeats id %s, which would misalign every number after it" % (where, story_id))
+        new_topic = entry.get("new") or None
+        if new_topic is not None and not isinstance(new_topic, str):
+            die("%s.new must be a topic name, got %r" % (where, new_topic))
+        terms = string_list(entry.get("terms"), where + ".terms")
+        order.append(story_id)
+        items[story_id] = {"topics": string_list(entry.get("topics"), where + ".topics"),
+                           "new_topic": new_topic, "new_terms": terms}
+        if new_topic:
+            probation[new_topic] = terms
+    return {"mode": mode, "order": order, "items": items,
+            "shown": string_list(batch.get("shown"), "shown"), "probation": probation,
+            "learn": string_map(batch.get("learn"), "learn")}
+
+
+def load_batch(args):
+    """A batch from --batch or --file, whichever the caller gave."""
+    if getattr(args, "batch", None):
+        try:
+            return expand_batch(json.loads(args.batch))
+        except json.JSONDecodeError as exc:
+            die("--batch is not valid JSON: %s" % exc)
     payload = read_json(args.file, None)
     if payload is None:
         die("no such file: %s" % args.file)
+    return payload
+
+
+def cmd_record(args, prof):
+    """Merge a rendered brief into brief.json so the tracker can resolve links."""
+    payload = load_batch(args)
     incoming = payload.get("items") or {}
     if not isinstance(incoming, dict):
         die("items must be an object keyed by story id")
@@ -524,9 +610,12 @@ def cmd_record(args, prof):
             "title": item.get("title", ""),
             "url": url,
             "hn_url": hn_url,
-            "topics": item.get("topics") or [],
+            # Checked again here, not only in expand_batch, because `--file` reaches this
+            # without passing through it and `cmd_keep` copies new_terms straight into an
+            # interest's term list. A string there is compiled one character at a time.
+            "topics": string_list(item.get("topics"), "items[%s].topics" % story_id),
             "new_topic": item.get("new_topic"),
-            "new_terms": item.get("new_terms") or [],
+            "new_terms": string_list(item.get("new_terms"), "items[%s].new_terms" % story_id),
             "mode": item.get("mode", mode),
             "first_seen": items.get(str(story_id), {}).get("first_seen") or stamp(),
         }
@@ -828,7 +917,9 @@ def build_parser():
     p.add_argument("ids", nargs="+")
 
     p = sub.add_parser("record", help="merge a rendered brief into brief.json")
-    p.add_argument("--file", required=True)
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--batch", help="compact JSON batch, the shape `apply --batch` takes")
+    source.add_argument("--file", help="a batch already expanded, for debugging")
     p.add_argument("--mark-seen", action="store_true",
                    help="also suppress these stories, by id and by title, in later runs")
 

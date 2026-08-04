@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "hn-brief",
   "displayName": "HN Brief",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Personalized Hacker News brief. Ranks today's stories against a stored interest profile, surfaces a few new topics each run, and learns from which links you click.",
   "author": {
     "name": "ArchitektApx",

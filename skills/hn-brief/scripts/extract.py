@@ -18,6 +18,7 @@ Emits a JSON array on stdout, one object per URL in the order given.
 """
 
 import argparse
+import http.client
 import importlib.util
 import json
 import os
@@ -42,6 +43,10 @@ store = _load_sibling("hn_brief_profile", "profile.py")
 
 USER_AGENT = "hn-brief (Claude Code plugin; +https://github.com/ArchitektApx/HackerNews-Brief)"
 MAX_BYTES = 1_500_000
+# How much article text a summary is written from. Lives here rather than in fetch.py
+# because it is the default of extract_many below and duplicating the number in both
+# modules is worse than either home. Gate 2 settled it at 13 of 14 truncations usable.
+SUMMARY_TEXT_CHARS = 1200
 SKIP_TAGS = {"script", "style", "nav", "header", "footer", "aside", "form", "noscript", "svg"}
 BLOCK_TAGS = {"p", "div", "section", "article", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}
 
@@ -183,7 +188,12 @@ def extract_one(url, max_chars, timeout):
                 return result
             charset = resp.headers.get_content_charset() or "utf-8"
             body = resp.read(MAX_BYTES).decode(charset, "replace")
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError) as exc:
+    # http.client.HTTPException, which covers IncompleteRead and a truncated or malformed
+    # response line, descends from Exception rather than from OSError or URLError, so it is
+    # not implied by any of the others. Leaving it out let one truncated page escape this
+    # handler entirely and take every summary in the brief with it.
+    except (urllib.error.URLError, urllib.error.HTTPError, http.client.HTTPException,
+            TimeoutError, OSError, ValueError) as exc:
         result["reason"] = "fetch failed: %s" % exc
         return result
 
@@ -235,6 +245,49 @@ def resolve_ids(ids):
     return pairs
 
 
+def extract_all(pairs, max_chars=SUMMARY_TEXT_CHARS, timeout=12, workers=6):
+    """Fetch (id, url) pairs in parallel and return every result, in the order given.
+
+    The id travels with its result rather than being matched back by URL afterwards. The
+    brief payload ships no URLs, so an id is the only handle a later step has on a story,
+    and pairing by position is correct where pairing by URL quietly breaks the moment the
+    same link is submitted twice under two ids.
+
+    A story id may be None, which is what the CLI passes for a bare URL argument.
+    """
+    pairs = list(pairs)
+    if not pairs:
+        return []
+
+    def one(pair):
+        # "One failure never blocks the others" is this module's contract, and it has to hold
+        # against anything a third party site can provoke, not only the errors named in
+        # extract_one. Anything unhandled becomes that page's failure, never the batch's.
+        try:
+            return extract_one(pair[1], max_chars, timeout)
+        except Exception as exc:
+            return {"url": pair[1], "ok": False, "title": "", "description": "", "text": "",
+                    "reason": "extract failed: %s: %s" % (type(exc).__name__, exc)}
+
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(pairs)))) as pool:
+        results = list(pool.map(one, pairs))
+    for (story_id, _url), result in zip(pairs, results):
+        if story_id is not None:
+            result["id"] = story_id
+    return results
+
+
+def extract_many(pairs, want, max_chars=SUMMARY_TEXT_CHARS, timeout=12, workers=6):
+    """Fetch pairs of (id, url) in parallel and return the first `want` successes in order.
+
+    Failures are dropped rather than reported, which is what the brief run wants: it passes
+    a shortlist longer than `want` so a page behind robots.txt or a paywall costs a spare
+    instead of a summary slot, and a refusal the model cannot act on is not worth shipping.
+    The CLI wants the opposite and uses extract_all directly.
+    """
+    return [r for r in extract_all(pairs, max_chars, timeout, workers) if r["ok"]][:want]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="extract.py", description="article text for summaries")
     parser.add_argument("urls", nargs="*")
@@ -247,17 +300,11 @@ def main(argv=None):
                              "the ones robots.txt or a paywall will refuse")
     args = parser.parse_args(argv)
 
-    pairs = resolve_ids(args.ids) if args.ids else []
-    id_for = {url: story_id for story_id, url in pairs}
-    args.urls = list(args.urls) + [url for _, url in pairs]
-    if not args.urls:
+    pairs = [(None, url) for url in args.urls] + (resolve_ids(args.ids) if args.ids else [])
+    if not pairs:
         raise SystemExit("hn-brief: nothing to extract. Pass URLs or --ids.")
 
-    with ThreadPoolExecutor(max_workers=max(1, min(args.workers, len(args.urls)))) as pool:
-        results = list(pool.map(lambda u: extract_one(u, args.max_chars, args.timeout), args.urls))
-    for result in results:
-        if result["url"] in id_for:
-            result["id"] = id_for[result["url"]]
+    results = extract_all(pairs, args.max_chars, args.timeout, args.workers)
 
     if args.want:
         # Keep the first N that worked, in the order asked for, then name the ones that did

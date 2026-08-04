@@ -82,26 +82,34 @@ def cmd_run(args, mode):
 
 
 def cmd_apply(args):
-    """Apply a rendered list from one file, instead of a shell line per decision.
+    """Apply a rendered list from one JSON argument, instead of a shell line per decision.
 
     The batch already names every topic decision, so restating them as arguments only
     invites a quoting mistake. `mode` decides whether these stories are suppressed later:
     a brief has been read, while an explore list is an offer the user may still take up.
-    """
-    with open(args.file, encoding="utf-8") as fh:
-        batch = json.load(fh)
-    explore = batch.get("mode") == "explore"
 
-    out = [run(store, ["record", "--file", args.file]
+    Expanding here before anything runs means a malformed batch fails loud and leaves the
+    store untouched, rather than half of it applied.
+    """
+    try:
+        batch = store.expand_batch(json.loads(args.batch))
+    except json.JSONDecodeError as exc:
+        raise SystemExit("hn-brief: --batch is not valid JSON: %s" % exc)
+    explore = batch["mode"] == "explore"
+
+    out = [run(store, ["record", "--batch", args.batch]
                + ([] if explore else ["--mark-seen"]))]
 
-    if batch.get("shown"):
+    if batch["shown"]:
         out.append(run(store, ["shown"] + list(batch["shown"])))
     # Explore is opt-in: appearing in the list is an offer, not acceptance, so nothing it
-    # shows may enter probation or be suppressed later.
-    for topic, terms in (() if explore else (batch.get("probation") or {}).items()):
+    # shows may enter probation or be suppressed later. The topics are still recorded, since
+    # `keep N` needs them to know what a click would adopt.
+    for topic, terms in (() if explore else batch["probation"].items()):
         out.append(run(store, ["probation-add", topic, "--terms", ",".join(terms)]))
-    for topic, terms in (batch.get("learn") or {}).items():
+    # After probation-add, because `learn` dies for a topic that does not exist yet and a
+    # topic offered this run may receive learned terms in the same apply.
+    for topic, terms in batch["learn"].items():
         out.append(run(store, ["learn", topic, "--terms", ",".join(terms)]))
 
     print("\n".join(line for line in out if line))
@@ -110,7 +118,7 @@ def cmd_apply(args):
 USAGE = """hn.py, the single entry point for hn-brief.
 
   brief|explore [--range R]   preamble and candidates, as one payload
-  apply --file BATCH          record a rendered list and every decision in it
+  apply --batch JSON          record a rendered list and every decision in it
   extract ...                 article text, arguments as extract.py
   terms ...                   term verdicts, arguments as fetch.py terms
   tracker ...                 arguments as tracker.py
@@ -134,7 +142,7 @@ def main(argv=None):
         cmd_run(parser.parse_args(rest), command)
     elif command == "apply":
         parser = argparse.ArgumentParser(prog="hn.py apply")
-        parser.add_argument("--file", required=True)
+        parser.add_argument("--batch", required=True)
         cmd_apply(parser.parse_args(rest))
     elif command == "extract":
         extract.main(rest)
