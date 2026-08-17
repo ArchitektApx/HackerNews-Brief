@@ -11,6 +11,23 @@ Python standard library only, no dependencies, by design. The interest profile i
 Nothing leaves the machine except requests to HN's public Algolia API and to article pages the
 user asked to have summarized.
 
+## Working in this repository
+
+`master` is protected by a ruleset with no bypass, so nothing lands by pushing to it, including
+from the owner. Branch, push the branch, open a PR, merge it yourself. A PR needs the `verify`
+check green and squash as its merge method; it needs no approvals.
+
+Every commit must be signed. Local commits inherit `commit.gpgsign`; an unsigned commit is
+refused at push, not at review.
+
+Repository policy requires every action in `.github/workflows/` to be pinned to a full commit
+SHA, version as a trailing comment. A tag reference does not fail review, it fails the run.
+Dependabot owns those SHAs and bumps them in one grouped PR monthly, so bumping one by hand only
+creates a conflict with the next one.
+
+A workflow file registers with GitHub only when a push modifies it. One added in a repository's
+first push stays invisible until a later commit touches the file.
+
 ## Gotchas
 
 **One Bash call is one bare `hn-brief` invocation.** A permission rule is matched against each
@@ -76,8 +93,30 @@ Read it before a substantial edit to `SKILL.md`, `reference/*.md` or this file.
 
 ## Verifying a change
 
-No test suite. Verification is a live run against the real API, so exercise the path you touched
-and read the output. Reports live in `TEST-RUN*.md`, local and gitignored.
+No test suite. `verify.yml` checks what ships, not whether the brief works. Verification is a live
+run against the real API, so exercise the path you touched and read the output. Reports live in
+`TEST-RUN*.md`, local and gitignored.
+
+## Supply-chain invariants
+
+Everything committed here is cloned onto every machine that installs the marketplace, and a
+plugin manifest can declare hooks and MCP servers that run there. `verify.yml` asserts each of
+these on every push and PR; preserve them through any refactor of it, and treat a red check as a
+decision rather than a nuisance.
+
+- **No hooks, no MCP servers.** Neither key in either manifest, no `hooks.json`, no `.mcp.json`.
+  Either would run on the installer's machine at every session, so its appearance is a change to
+  review on its own, never something a feature PR carries along.
+- **`marketplace.json` sources only `./`.** A remote source delegates trust in this repo to
+  another one.
+- **`bin/hn-brief` is the only executable and nothing is a symlink.** The wrapper must stay
+  100755 or the bare `hn-brief` call stops resolving; anything else executable is redistributed
+  verbatim and awkward to audit once installed.
+- **Scripts import only the standard library.** A third-party import is a silent new dependency
+  on every install, and there is no lockfile to catch it.
+- **`verify.yml` triggers on `pull_request`, never `pull_request_target`.** It runs PR-head code,
+  so the target trigger would hand fork PRs write access and secrets. `permissions` stays
+  `contents: read`.
 
 ## Releasing
 
