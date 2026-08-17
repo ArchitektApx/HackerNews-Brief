@@ -1,0 +1,129 @@
+name: Verify
+
+# pull_request, never pull_request_target: this checks out and runs code from
+# the PR head, so it must not have write access or secrets.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A broken manifest breaks install for every user, and there is no
+      # staged rollout to catch it.
+      - name: Validate JSON manifests
+        run: |
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
+            python3 -m json.tool "$f" >/dev/null || { echo "invalid JSON: $f"; exit 1; }
+          done
+
+      # `version` lives in both files. Bumping one and not the other means
+      # `/plugin marketplace update` detects nothing.
+      - name: Versions agree
+        run: |
+          p=$(python3 -c 'import json;print(json.load(open(".claude-plugin/plugin.json"))["version"])')
+          m=$(python3 -c 'import json;print(json.load(open(".claude-plugin/marketplace.json"))["plugins"][0]["version"])')
+          [ "$p" = "$m" ] || { echo "version mismatch: plugin.json=$p marketplace.json=$m"; exit 1; }
+
+      # This plugin ships no hooks and no MCP servers, on purpose (see CLAUDE.md).
+      # Either would run on every installer's machine, so their appearance is a
+      # change to review, not something to slip in with a feature.
+      - name: No hooks or MCP servers declared
+        run: |
+          rc=0
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
+            python3 - "$f" <<'PY' || rc=1
+          import json, sys
+          keys = {"hooks", "mcpServers", "lspServers"}
+          def walk(o):
+              if isinstance(o, dict):
+                  hit = keys & set(o)
+                  if hit:
+                      print("%s declares %s" % (sys.argv[1], ", ".join(sorted(hit))))
+                      sys.exit(1)
+                  for v in o.values(): walk(v)
+              elif isinstance(o, list):
+                  for v in o: walk(v)
+          walk(json.load(open(sys.argv[1])))
+          PY
+          done
+          for f in $(git ls-files | grep -E '(^|/)(hooks/hooks\.json|\.mcp\.json|mcp\.json)$'); do
+            echo "unexpected hook or MCP config: $f"; rc=1
+          done
+          exit $rc
+
+      # The only plugin source this marketplace should ever point at is itself.
+      # A remote source delegates trust to another repository.
+      - name: Marketplace sources are local
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          m = json.load(open(".claude-plugin/marketplace.json"))
+          bad = [p for p in m["plugins"] if p.get("source") != "./"]
+          if bad:
+              print("non-local plugin source:", [p.get("source") for p in bad]); sys.exit(1)
+          PY
+
+      - name: Check every skill has frontmatter
+        run: |
+          rc=0
+          while IFS= read -r f; do
+            head -n 1 "$f" | grep -qx -- '---' || { echo "missing frontmatter: $f"; rc=1; }
+            grep -qE '^name:' "$f" || { echo "missing name: $f"; rc=1; }
+            grep -qE '^description:' "$f" || { echo "missing description: $f"; rc=1; }
+          done < <(find skills -name SKILL.md)
+          exit $rc
+
+      # Everything here is redistributed verbatim. bin/hn-brief is the one
+      # executable by design: Claude Code puts a plugin's bin/ on PATH and the
+      # wrapper is what keeps every call a bare `hn-brief`. Nothing else may be
+      # executable, and nothing may be a symlink.
+      - name: Reject symlinks and unexpected executables
+        run: |
+          rc=0
+          while IFS= read -r entry; do
+            mode=${entry%% *}; path=${entry#* }
+            case "$mode" in
+              120000) echo "symlink: $path"; rc=1 ;;
+              100755) [ "$path" = "bin/hn-brief" ] || { echo "unexpected executable: $path"; rc=1; } ;;
+            esac
+          done < <(git ls-files -s | awk '{print $1" "$4}')
+          [ "$(git ls-files -s bin/hn-brief | awk '{print $1}')" = "100755" ] || { echo "bin/hn-brief must be executable"; rc=1; }
+          exit $rc
+
+      # Standard library only, by design. A third-party import would be a
+      # silent new dependency on every installer's machine.
+      - name: Scripts compile and import only the standard library
+        run: |
+          python3 -m compileall -q skills/hn-brief/scripts
+          python3 - <<'PY'
+          import ast, pathlib, sys
+          std = sys.stdlib_module_names
+          rc = 0
+          for f in pathlib.Path("skills/hn-brief/scripts").glob("*.py"):
+              for node in ast.walk(ast.parse(f.read_text())):
+                  names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                           else [node.module] if isinstance(node, ast.ImportFrom) and node.level == 0 else [])
+                  for n in names:
+                      if n and n.split(".")[0] not in std:
+                          print("%s imports non-stdlib module %s" % (f, n)); rc = 1
+          sys.exit(rc)
+          PY
+
+      # Smoke test the wrapper: it must resolve its own script and answer usage.
+      - name: Wrapper runs
+        run: PATH="$PWD/bin:$PATH" hn-brief --help | grep -q 'single entry point'
